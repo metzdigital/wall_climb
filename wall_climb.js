@@ -3,19 +3,24 @@ var ctx = canvas.getContext('2d');
 var pix_width = canvas.width;
 var pix_height = canvas.height;
 var pix_width_center = canvas.width/2;
-var pix_height_center = canvas.height/2;
+var pix_height_center = canvas.height - canvas.height/6;
 var mouseX=pix_width_center;
 var mouseY=pix_height_center;
 
 var meters2pix = 1000;
-var sphereSegs = 200;
-var RayTraceIterations=20;
-var minRayMag = 0.05;
-var raf;
 
+var time = 0;
+
+var wall_left;
+var wall_right;
+var veh;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function deg2rad(deg){
+	return Math.PI/180*deg;
 }
 
 //Convert values to color
@@ -56,8 +61,11 @@ function clear() {
 function draw(){
 	clear();
 	drawCoordinate();
+	time += 0.01;
 	veh.update();
 	veh.draw();
+	wall_left.draw();
+	wall_right.draw();
 
 	raf = window.requestAnimationFrame(draw);
 	 // sleep(10);
@@ -87,8 +95,17 @@ class Vechile{
 		//Internal stuff
 		this.x0 = body_w + preload*k;
 
-		this.wheel_R_rot = 0;
+		this.wheel_L_x = -1*this.body_w/2*Math.cos(this.rot);
+		this.wheel_L_y = -1*this.body_w/2*Math.sin(this.rot);
 		this.wheel_L_rot = 0;
+		this.wheel_L_wall_tangent = 0;
+
+		this.wheel_R_x = this.body_w/2*Math.cos(this.rot);
+		this.wheel_R_y = this.body_w/2*Math.sin(this.rot);
+		this.wheel_R_rot = 0;
+		this.wheel_R_wall_tangent = 0;
+		
+
 		this.spring_gap = this.body_w/8;
 		this.spring_coils = 7;
 	}
@@ -103,7 +120,7 @@ class Vechile{
 		//Draw the left wheel
 		ctx.save();
 			//Move to the vehicle center		
-			ctx.translate(m2pix(this.x)+pix_width_center, m2pix(this.y)+pix_height_center);
+			ctx.translate(m2pix(this.x)+pix_width_center, pix_height_center-m2pix(this.y));
 			//Rotate by vehicle amount
 			ctx.rotate(this.rot);
 			//Translate to left wheel
@@ -132,7 +149,7 @@ class Vechile{
 		//Draw the right wheel
 		ctx.save();
 			//Move to the vehicle center		
-			ctx.translate(m2pix(this.x)+pix_width_center, m2pix(this.y)+pix_height_center);
+			ctx.translate(m2pix(this.x)+pix_width_center, pix_height_center-m2pix(this.y));
 			//Rotate by vehicle amount
 			ctx.rotate(this.rot);
 			//Translate to right wheel
@@ -162,7 +179,7 @@ class Vechile{
 	draw_body(){
 		ctx.save();
 			//Move to the vehicle center		
-			ctx.translate(m2pix(this.x)+pix_width_center, m2pix(this.y)+pix_height_center);
+			ctx.translate(m2pix(this.x)+pix_width_center, pix_height_center-m2pix(this.y));
 			//Rotate by vehicle amount
 			ctx.rotate(this.rot);
 			//Start drawing the left body
@@ -194,7 +211,7 @@ class Vechile{
 		var init_line_width = ctx.lineWidth;
 		ctx.save();
 			//Move to the vehicle center		
-			ctx.translate(m2pix(this.x)+pix_width_center, m2pix(this.y)+pix_height_center);
+			ctx.translate(m2pix(this.x)+pix_width_center, pix_height_center-m2pix(this.y));
 			//Rotate by vehicle amount
 			ctx.rotate(this.rot);
 			//Start drawing the left body
@@ -223,36 +240,90 @@ class Vechile{
 	}
 
 	update(){
+		this.wheel_L_x = -1*this.body_w/2*Math.cos(this.rot);
+		this.wheel_L_y = -1*this.body_w/2*Math.sin(this.rot);
+
+		this.wheel_R_x = this.body_w/2*Math.cos(this.rot);
+		this.wheel_R_y = this.body_w/2*Math.sin(this.rot);
+
 		this.wheel_R_rot += 0.01;
 		this.wheel_L_rot -= 0.01;
-		this.rot += 0.001;
+		//this.rot += 0.001;
+
+		this.spring_gap = (Math.cos(time) * 0.05) + 0.1;
+		//this.body_w = 0.4 + this.spring_gap;
 	}
 
 }
 
 class Wall{
 	//x - offset in x-axis in meters
-	//slope - rise over run
+	//slope - in radians
 	//height - how tall is the wall in meters
-	constructor(x, slope, height){
+	constructor(x, slope, height, mirror=false){
 		this.x = x;
 		this.slope = slope;
 		this.height = height;
+		this.mirror = mirror;
+		
+		this.x_intercept = 0;
 	}
 
 	draw(){
-		ctx.beginPath();
-		ctx.moveTo(0, 0);
-		ctx.lineTo(100,50);
-		ctx.lineTo(50, 100);
-		ctx.lineTo(0, 90);
-		ctx.closePath();
-		ctx.fill();
+
+		ctx.strokeStyle = rgb(153,255,255);
+		ctx.fillStyle = rgb(153,255,255);
+		if(this.mirror){
+			//Draw the right wall
+			ctx.beginPath();
+			ctx.moveTo(m2pix(this.x_intercept)+pix_width_center, pix_height_center);
+			ctx.lineTo(m2pix(this.height)*Math.cos(this.slope)+m2pix(this.x_intercept)+pix_width_center,pix_height_center-m2pix(this.height)*Math.sin(this.slope));
+			ctx.lineTo(pix_width, pix_height_center-m2pix(this.height)*Math.sin(this.slope));
+			ctx.lineTo(pix_width, pix_height_center);
+			ctx.closePath();
+			ctx.fill();
+			ctx.stroke();
+		}
+		else
+		{	
+			//Draw the left wall
+			ctx.beginPath();
+			ctx.moveTo(m2pix(this.x_intercept)+pix_width_center, pix_height_center);
+			ctx.lineTo(m2pix(this.height)*Math.cos(this.slope)+m2pix(this.x_intercept)+pix_width_center,pix_height_center-m2pix(this.height)*Math.sin(this.slope));
+			ctx.lineTo(0, pix_height_center-m2pix(this.height)*Math.sin(this.slope));
+			ctx.lineTo(0, pix_height_center);
+			ctx.closePath();
+			ctx.fill();
+			ctx.stroke();
+		}
 	}
 	
 }
 
+function init_walls(){
+	//Given vehicles position and rotation what are the x,y position of contact for each wall
+	// and what is the x intercept for the wall given that info
+	
+	wall_left = new Wall(-.4, deg2rad(135), 2);
+	wall_right = new Wall(0.4, deg2rad(85), 2, true);
 
+	veh.wheel_L_wall_tangent = Math.PI/2 - wall_left.slope;
+	veh.wheel_R_wall_tangent = Math.PI/2 - wall_right.slope;
+
+	//Find location in X,Y where wheel touches wall given wall angle (slope) use that to find x-intercept
+	wall_wheel_L_x = veh.wheel_L_x - veh.wheel_radius*Math.cos(veh.wheel_L_wall_tangent);
+	wall_wheel_L_y = veh.wheel_L_y - veh.wheel_radius*Math.sin(veh.wheel_L_wall_tangent);
+	wall_left.x_intercept = wall_wheel_L_x - wall_wheel_L_y/Math.tan(wall_left.slope);
+
+	wall_wheel_R_x = veh.wheel_R_x + veh.wheel_radius*Math.cos(veh.wheel_R_wall_tangent);
+	wall_wheel_R_y = veh.wheel_R_y + veh.wheel_radius*Math.sin(veh.wheel_R_wall_tangent);
+	wall_right.x_intercept = wall_wheel_R_x - wall_wheel_R_y/Math.tan(wall_right.slope);
+
+	console.log(wall_wheel_L_x)
+	console.log(wall_wheel_L_y)
+	console.log(wall_left);
+	console.log(wall_right);
+}
 
 
 window.addEventListener('keydown', function(e) {
@@ -441,7 +512,7 @@ function updateOptic(){
 
 }
 
-veh = new Vechile(0, 0, Math.PI/16, 0.05, 0.4, 0.09, 50, 200, 1000);
-
+veh = new Vechile(0, 0.1, deg2rad(0), 0.05, 0.4, 0.09, 50, 200, 1000);
+init_walls();
 draw();
 console.log(veh);
