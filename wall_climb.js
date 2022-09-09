@@ -95,13 +95,13 @@ class Vechile{
 		//Internal stuff
 		this.x0 = body_w + preload*k;
 
-		this.wheel_L_x = -1*this.body_w/2*Math.cos(this.rot);
-		this.wheel_L_y = -1*this.body_w/2*Math.sin(this.rot);
+		this.wheel_L_x = this.x - this.body_w/2*Math.cos(-this.rot);
+		this.wheel_L_y = this.y - this.body_w/2*Math.sin(-this.rot);
 		this.wheel_L_rot = 0;
 		this.wheel_L_wall_tangent = 0;
 
-		this.wheel_R_x = this.body_w/2*Math.cos(this.rot);
-		this.wheel_R_y = this.body_w/2*Math.sin(this.rot);
+		this.wheel_R_x = this.x + this.body_w/2*Math.cos(-this.rot);
+		this.wheel_R_y = this.y + this.body_w/2*Math.sin(-this.rot);
 		this.wheel_R_rot = 0;
 		this.wheel_R_wall_tangent = 0;
 		
@@ -240,16 +240,18 @@ class Vechile{
 	}
 
 	update(){
-		this.wheel_L_x = -1*this.body_w/2*Math.cos(this.rot);
-		this.wheel_L_y = -1*this.body_w/2*Math.sin(this.rot);
+		this.wheel_L_x = this.x - this.body_w/2*Math.cos(-this.rot);
+		this.wheel_L_y = this.y - this.body_w/2*Math.sin(-this.rot);
 
-		this.wheel_R_x = this.body_w/2*Math.cos(this.rot);
-		this.wheel_R_y = this.body_w/2*Math.sin(this.rot);
+		this.wheel_R_x = this.x + this.body_w/2*Math.cos(-this.rot);
+		this.wheel_R_y = this.y + this.body_w/2*Math.sin(-this.rot);
 
 		this.wheel_R_rot += 0.01;
 		this.wheel_L_rot -= 0.01;
-		//this.rot += 0.001;
-
+		this.rot = deg2rad(30)*Math.sin(time);
+		
+		init_walls();
+		
 		this.spring_gap = (Math.cos(time) * 0.05) + 0.1;
 		//this.body_w = 0.4 + this.spring_gap;
 	}
@@ -307,8 +309,8 @@ function init_walls(){
 	wall_left = new Wall(-.4, deg2rad(135), 2);
 	wall_right = new Wall(0.4, deg2rad(85), 2, true);
 
-	veh.wheel_L_wall_tangent = Math.PI/2 - wall_left.slope;
-	veh.wheel_R_wall_tangent = Math.PI/2 - wall_right.slope;
+	veh.wheel_L_wall_tangent = wall_left.slope - Math.PI/2;
+	veh.wheel_R_wall_tangent = wall_right.slope - Math.PI/2;
 
 	//Find location in X,Y where wheel touches wall given wall angle (slope) use that to find x-intercept
 	wall_wheel_L_x = veh.wheel_L_x - veh.wheel_radius*Math.cos(veh.wheel_L_wall_tangent);
@@ -319,6 +321,9 @@ function init_walls(){
 	wall_wheel_R_y = veh.wheel_R_y + veh.wheel_radius*Math.sin(veh.wheel_R_wall_tangent);
 	wall_right.x_intercept = wall_wheel_R_x - wall_wheel_R_y/Math.tan(wall_right.slope);
 
+
+	console.log(veh.wheel_L_x)
+	console.log(veh.wheel_L_y)
 	console.log(wall_wheel_L_x)
 	console.log(wall_wheel_L_y)
 	console.log(wall_left);
@@ -512,7 +517,7 @@ function updateOptic(){
 
 }
 
-veh = new Vechile(0, 0.1, deg2rad(0), 0.05, 0.4, 0.09, 50, 200, 1000);
+veh = new Vechile(0, 0.3, deg2rad(30), 0.05, 0.4, 0.09, 50, 200, 1000);
 init_walls();
 draw();
 console.log(veh);
