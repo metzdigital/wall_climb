@@ -7,13 +7,29 @@ var pix_height_center = canvas.height - canvas.height/6;
 var mouseX=pix_width_center;
 var mouseY=pix_height_center;
 
+
 var meters2pix = 1000;
 
+//Increasing time variable used for cos/sin animation stuff
 var time = 0;
 
+//Our main objects in the scene
 var wall_left;
 var wall_right;
 var veh;
+
+//time step to use when integrating etc
+var dt = 0.001;
+
+//velocity increase rate (used for controls)
+var wheel_vel_rate = 5; //rate at which the speed increases
+var wheel_vel_decay = 0.1; //rate at which the speed slows down
+
+//control input flags
+var ctrl_left_wheel_up = false;
+var ctrl_left_wheel_down = false;
+var ctrl_right_wheel_up = false;
+var ctrl_right_wheel_down = false;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -57,11 +73,15 @@ function clear() {
   ctx.fillRect(0,0,canvas.width,canvas.height);
 }
 
+function dist(x,y){
+	return Math.sqrt(Math.pow(x,2)+Math.pow(y,2));
+}
+
 //Draw the scene
 function draw(){
 	clear();
 	drawCoordinate();
-	time += 0.01;
+	time += 0.001;
 	veh.update();
 	veh.draw();
 	wall_left.draw();
@@ -87,6 +107,7 @@ class Vechile{
 		this.rot = rot;
 		this.wheel_radius = wheel_radius;
 		this.body_w = body_w;
+		this.body_w0 = body_w;
 		this.body_h = body_h;
 		this.mass = mass;
 		this.k = k;
@@ -95,14 +116,24 @@ class Vechile{
 		//Internal stuff
 		this.x0 = body_w + preload*k;
 
+		this.wheel_L_x0 = this.x - this.body_w/2*Math.cos(-this.rot);
 		this.wheel_L_x = this.x - this.body_w/2*Math.cos(-this.rot);
+		this.wheel_L_y0 = this.y - this.body_w/2*Math.sin(-this.rot);
 		this.wheel_L_y = this.y - this.body_w/2*Math.sin(-this.rot);
 		this.wheel_L_rot = 0;
+		this.wheel_L_qd = 0; //rotation rate of the left wheel
+		this.wheel_L_qdd = 0; //acceleration rate of the left wheel
+		this.wheel_L_torque = 0; //torque being applied to the left wheel
 		this.wheel_L_wall_tangent = 0;
 
+		this.wheel_R_x0 = this.x + this.body_w/2*Math.cos(-this.rot);
+		this.wheel_R_y0 = this.y + this.body_w/2*Math.sin(-this.rot);
 		this.wheel_R_x = this.x + this.body_w/2*Math.cos(-this.rot);
 		this.wheel_R_y = this.y + this.body_w/2*Math.sin(-this.rot);
 		this.wheel_R_rot = 0;
+		this.wheel_R_qd = 0; //rotation rate of the right wheel
+		this.wheel_R_qdd = 0; //acceleration rate of the right wheel
+		this.wheel_R_torque = 0; //torque being applied to the right wheel
 		this.wheel_R_wall_tangent = 0;
 		
 
@@ -239,22 +270,80 @@ class Vechile{
 		ctx.lineWidth = init_line_width;
 	}
 
-	update(){
-		this.wheel_L_x = this.x - this.body_w/2*Math.cos(-this.rot);
-		this.wheel_L_y = this.y - this.body_w/2*Math.sin(-this.rot);
+	calc_left_wheel(){
+		if(ctrl_left_wheel_up){
+			this.wheel_L_qd -= wheel_vel_rate;
+			ctrl_left_wheel_up = false;
+		}
+		else if(ctrl_left_wheel_down){
+			this.wheel_L_qd += wheel_vel_rate;
+			ctrl_left_wheel_down = false;
+		}
+		else{
+			if(this.wheel_L_qd > 0){
+				this.wheel_L_qd -= wheel_vel_decay;
+			}
+			else if(this.wheel_L_qd < 0) {
+				this.wheel_L_qd += wheel_vel_decay;
+			}
+		}
 
-		this.wheel_R_x = this.x + this.body_w/2*Math.cos(-this.rot);
-		this.wheel_R_y = this.y + this.body_w/2*Math.sin(-this.rot);
+		this.wheel_L_rot += this.wheel_L_qd*dt;
 
-		this.wheel_R_rot += 0.01;
-		this.wheel_L_rot -= 0.01;
-		this.rot = deg2rad(30)*Math.sin(time);
-		
-		init_walls();
-		
-		this.spring_gap = (Math.cos(time) * 0.05) + 0.1;
-		//this.body_w = 0.4 + this.spring_gap;
+		//A change in wheel angle will move the rotation point parallel to the line of contact
+		this.wheel_L_x = this.wheel_L_x0 + this.wheel_L_rot*this.wheel_radius*Math.cos(wall_left.slope);
+		this.wheel_L_y = this.wheel_L_y0 + this.wheel_L_rot*this.wheel_radius*Math.sin(wall_left.slope);
+
 	}
+
+	calc_right_wheel(){
+		if(ctrl_right_wheel_up){
+			this.wheel_R_qd += wheel_vel_rate;
+			ctrl_right_wheel_up = false;
+		}
+		else if(ctrl_right_wheel_down){
+			this.wheel_R_qd -= wheel_vel_rate;
+			ctrl_right_wheel_down = false;
+		}
+		else{
+			if(this.wheel_R_qd > 0){
+				this.wheel_R_qd -= wheel_vel_decay;
+			}
+			else if(this.wheel_R_qd < 0) {
+				this.wheel_R_qd += wheel_vel_decay;
+			}
+		}
+
+		this.wheel_R_rot += this.wheel_R_qd*dt;
+
+		//A change in wheel angle will move the rotation point parallel to the line of contact
+		this.wheel_R_x = this.wheel_R_x0 + this.wheel_R_rot*this.wheel_radius*Math.cos(wall_right.slope);
+		this.wheel_R_y = this.wheel_R_y0 + this.wheel_R_rot*this.wheel_radius*Math.sin(wall_right.slope);
+	}
+
+	update(){
+
+		//Calc if the wheels have moved
+		this.calc_left_wheel();	
+		this.calc_right_wheel();
+
+		//adjust the width of the body given the new position of the wheels
+		this.body_w = dist(this.wheel_L_x-this.wheel_R_x, this.wheel_L_y-this.wheel_R_y);
+
+		//adjust the angle given the new position of the wheels
+		this.rot = -Math.atan2(this.wheel_L_y-this.wheel_R_y, this.wheel_L_x-this.wheel_R_x);
+
+		//The center of the vehicle is located between the two wheel points
+		this.x = (this.wheel_L_x+this.wheel_R_x)/2;
+		this.y = (this.wheel_L_y+this.wheel_R_y)/2;
+		
+		this.spring_gap = this.body_w0/8 + (this.body_w - this.body_w0);
+
+	}
+
+	
+
+
 
 }
 
@@ -302,32 +391,29 @@ class Wall{
 	
 }
 
-function init_walls(){
+function init_system(){
 	//Given vehicles position and rotation what are the x,y position of contact for each wall
 	// and what is the x intercept for the wall given that info
 	
-	wall_left = new Wall(-.4, deg2rad(135), 2);
+	wall_left = new Wall(-.4, deg2rad(100), 2);
 	wall_right = new Wall(0.4, deg2rad(85), 2, true);
+
+	//Optimal vehicle angle is the average of the two
+	var vehicle_rot = (wall_left.slope+wall_right.slope)/2;
+	veh = new Vechile(0, 0.3, Math.PI/2-vehicle_rot, 0.05, 0.4, 0.09, 50, 200, 1000);
 
 	veh.wheel_L_wall_tangent = wall_left.slope - Math.PI/2;
 	veh.wheel_R_wall_tangent = wall_right.slope - Math.PI/2;
 
 	//Find location in X,Y where wheel touches wall given wall angle (slope) use that to find x-intercept
-	wall_wheel_L_x = veh.wheel_L_x - veh.wheel_radius*Math.cos(veh.wheel_L_wall_tangent);
-	wall_wheel_L_y = veh.wheel_L_y - veh.wheel_radius*Math.sin(veh.wheel_L_wall_tangent);
+	wall_wheel_L_x = veh.wheel_L_x0 - veh.wheel_radius*Math.cos(veh.wheel_L_wall_tangent);
+	wall_wheel_L_y = veh.wheel_L_y0 - veh.wheel_radius*Math.sin(veh.wheel_L_wall_tangent);
 	wall_left.x_intercept = wall_wheel_L_x - wall_wheel_L_y/Math.tan(wall_left.slope);
 
-	wall_wheel_R_x = veh.wheel_R_x + veh.wheel_radius*Math.cos(veh.wheel_R_wall_tangent);
-	wall_wheel_R_y = veh.wheel_R_y + veh.wheel_radius*Math.sin(veh.wheel_R_wall_tangent);
+	wall_wheel_R_x = veh.wheel_R_x0 + veh.wheel_radius*Math.cos(veh.wheel_R_wall_tangent);
+	wall_wheel_R_y = veh.wheel_R_y0 + veh.wheel_radius*Math.sin(veh.wheel_R_wall_tangent);
 	wall_right.x_intercept = wall_wheel_R_x - wall_wheel_R_y/Math.tan(wall_right.slope);
 
-
-	console.log(veh.wheel_L_x)
-	console.log(veh.wheel_L_y)
-	console.log(wall_wheel_L_x)
-	console.log(wall_wheel_L_y)
-	console.log(wall_left);
-	console.log(wall_right);
 }
 
 
@@ -339,14 +425,16 @@ window.addEventListener('keydown', function(e) {
 	console.log(e.key);
 	switch (e.key) {
 		case "a":
-			meters2pix = meters2pix*1.2;
-			pix_width_center -= (mouseX-pix_width/2);
-			pix_height_center -= (mouseY-pix_height/2);
+			ctrl_left_wheel_up = true;
 		break;
 		case "z":
-			meters2pix = meters2pix/1.2;
-			pix_width_center -= (mouseX-pix_width/2);
-			pix_height_center -= (mouseY-pix_height/2);
+			ctrl_left_wheel_down = true;
+		break;
+		case "k":
+			ctrl_right_wheel_up = true;
+		break;
+		case "m":
+			ctrl_right_wheel_down = true;
 		break;
 		case "s":
 			meters2pix = 10;
@@ -517,7 +605,6 @@ function updateOptic(){
 
 }
 
-veh = new Vechile(0, 0.3, deg2rad(30), 0.05, 0.4, 0.09, 50, 200, 1000);
-init_walls();
+init_system();
 draw();
 console.log(veh);
